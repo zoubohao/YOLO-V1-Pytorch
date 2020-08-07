@@ -15,17 +15,18 @@ if __name__ == "__main__":
     device = "cuda:0"
     boundingBoxesNum = 2
     labelsNum = 1
-    SGrid = 8
-    imageSize = 512
-    coordLambda = 3
-    noObjLambda = 0.003
+    SGrid = 7
+    imageSize = 896
+    coordLambda = 5
+    noObjLambda = 0.008
     LR = 1e-5
     multiplier = 100
     reg_lambda = 1e-5
+    ### In current version, the batch size only can be 1 !!!
     batchSize = 1
     warmEpoch = 5
-    epoch = 28
-    displayTimes = 20
+    epoch = 25
+    displayTimes = 10
     if_loadPre_TrainWeight = True
     preTrainWeightLoadPath = "resnext101_32x8d-8ba56ff5.pth"
     trainCheckPointSavePath = "./trainCheckPoint/"
@@ -81,15 +82,19 @@ if __name__ == "__main__":
                                preCondClasses=preCondClasses,
                                groundTruth=NBoxes,
                                groundLabels=NLabels)
-            scaler.scale(ordinateLoss + objLoss + noObjLoss + classesLoss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            totalLoss = ordinateLoss + objLoss + noObjLoss + classesLoss
+            #print(torch.isnan(totalLoss).tolist())
+            if torch.isnan(totalLoss).tolist() is False:
+                #print("Update")
+                scaler.scale(totalLoss).backward()
+                scaler.step(optimizer)
+                scaler.update()
             currentTrainingTimes += 1
-            if currentTrainingTimes % displayTimes == 0:
+            if currentTrainingTimes % displayTimes == 0 and torch.isnan(totalLoss).tolist() is False:
                 with torch.no_grad():
                     print("######################")
                     print("Epoch : %d , Training time : %d" % (e, currentTrainingTimes))
-                    print("Total Loss is %.3f " % ((ordinateLoss + objLoss + noObjLoss + classesLoss).item()))
+                    print("Total Loss is %.3f " % (totalLoss.item()))
                     print("Coordinate loss is {}".format(ordinateLoss.item()))
                     print("Object confident loss {}".format(objLoss.item()))
                     print("No object confident loss {}".format(noObjLoss.item()))

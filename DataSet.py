@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import dataset
 import torchvision as tv
 
+
 class AssembleDataSet(dataset.Dataset):
     def __init__(self, root, transforms, imageSize = 448):
         self.root = root
@@ -65,6 +66,10 @@ class AssembleDataSet(dataset.Dataset):
             y1 = int(np.round(origTop * y_scale))
             x2 = int(np.round(origRight * x_scale))
             y2 = int(np.round(origBottom * y_scale))
+            if abs(x2 - x1) == 0 :
+                x2 = x1 + 10
+            if abs(y2 - y1) == 0:
+                y2 = y1 + 10
             encodeBoxes.append([x1, y1, x2, y2])
         return encodeBoxes
 
@@ -87,7 +92,7 @@ def drawBox(boxes, image):
 if __name__ == "__main__":
     import torchvision
     dataSet = AssembleDataSet('./AssembleDataSet/',torchvision.transforms.ToTensor())
-    resizeImg , reBoxes, reLabels = dataSet.__getitem__(678)
+    resizeImg , reBoxes, reLabels = dataSet.__getitem__(1000)
     resizeImg = np.array(tv.transforms.ToPILImage()(resizeImg))
     print(resizeImg.shape)
     print(reBoxes.shape)

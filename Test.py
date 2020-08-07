@@ -61,22 +61,25 @@ def drawBox(boxes, image):
     :param image: np array
     :return:
     """
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     numBox = boxes.shape[0]
-    for i in range(0, numBox):
+    for j in range(0, numBox):
         # changed color and width to make it visible
-        cv2.rectangle(image, (boxes[i,0], boxes[i,1]), (boxes[i,2], boxes[i,3]), (255, 0, 0), 1)
+        cv2.rectangle(image, (boxes[j,0], boxes[j,1]), (boxes[j,2], boxes[j,3]), (0, 0, 0), 2)
     cv2.imshow("img", image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+from NMS import nms
+
 if __name__ == "__main__":
     ### Test part
-    testPeopleJpg = "./test4.jpg"
-    modelWeightPath = "./trainCheckPoint/30016Times.pth"
-    boundingBoxesNum = 2
+    testPeopleJpg = "./testJPGImages/test1.jpg"
+    modelWeightPath = "./trainCheckPoint/48552Times.pth"
+    boundingBoxesNum = 3
     labelsNum = 1
-    S = 8
-    imageSizeTest = 512
+    S = 10
+    imageSizeTest = 1280
     confidenceTh = 0.4
 
     ### Model
@@ -98,7 +101,6 @@ if __name__ == "__main__":
     # boxes [N, S, S, B * 4], (offsetX, offsetY, offsetW, offsetH)
     # condClasses [N, S, S, NUM_CLASSES]
     preConfidence, preBoxes, preCondClasses = yoloModel(imgTensor)
-    print(preConfidence)
     ### threshold box select [N, S, S, B]
     confidenceMask = (preConfidence >= confidenceTh).float()
     ### reshape the prediction boxes [N, S, S, B, 4]
@@ -117,8 +119,11 @@ if __name__ == "__main__":
             boxesConfidence.append(preConfidenceRe[0,i])
             boxesCoordinate.append(leftTopFormatBoxes[0, i, :])
     boxesCoordinate = torch.stack(boxesCoordinate,dim=0).detach().cpu().numpy()
+    boxesConfidence = torch.stack(boxesConfidence, dim=0).detach().cpu().numpy()
+    ### NMS
+    picked_boxes , _ = nms(boxesCoordinate, boxesConfidence, threshold=0.2)
     cv2Image = np.array(tv.transforms.Resize([imageSizeTest, imageSizeTest])(pilImg))
-    drawBox(np.array(boxesCoordinate), cv2Image)
+    drawBox(np.array(picked_boxes), cv2Image)
 
 
 

@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import math
+import cv2
 
 class Mish(nn.Module):
 
@@ -90,38 +90,89 @@ class SeparableConvBlock(nn.Module):
 
         return x
 
+class Bottleneck(nn.Module):
 
+    def __init__(self, inChannels, outChannels, stride=1):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inChannels, outChannels, kernel_size=1)
+        self.bn1 = nn.BatchNorm2d(outChannels, eps=1e-3, momentum= 1- 0.99)
+        self.conv2 = nn.Conv2d(outChannels, outChannels,kernel_size=3, stride = stride, groups = outChannels, padding=1)
+        self.bn2 = nn.BatchNorm2d(outChannels ,eps=1e-3, momentum= 1- 0.99)
+        self.conv3 = nn.Conv2d(outChannels, outChannels, kernel_size=1)
+        self.bn3 = nn.BatchNorm2d(outChannels)
+        self.relu = Mish()
+        self.downSample = nn.Sequential(nn.Conv2d(inChannels, outChannels, kernel_size=3, stride=stride, padding=1),
+                                        nn.BatchNorm2d(outChannels ,eps=1e-3, momentum= 1- 0.99),
+                                        Mish())
+
+    def forward(self, x):
+        identity = self.downSample(x)
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        out += identity
+        out = self.relu(out)
+
+        return out
+
+import math
 class YoloDetection(nn.Module, ABC):
 
     def __init__(self, backBoneOutChannels: int, backbone: nn.Module, BoundingBoxes: int,
                  num_classes: int, SGrid: int, imageSize : int):
         """
+        x, y means the center of the bounding box.
+        w, h means the width and height of bounding box.
+        x1, y1 means the left top coordinate of bounding box.
+        x2, y2 means the right bottom coordinate of bounding box.
         (S x S): Our system divides the input image into an S × S grid. If the center of an object falls into a grid cell,
         that grid cell is responsible for detecting that object.
         (x,y): The (x, y) coordinates represent the center of the box relative to the bounds of the grid cell.
         (w,h): The width and height are predicted relative to the whole image.
         (Confidence): Finally the confidence prediction represents the IOU between the predicted box and any ground truth box.
         It is zero if there is no object in this grid.
-        :param backBoneOutChannels:
-        :param backbone: 4 times striding operation.
-        :param BoundingBoxes:
-        :param num_classes:
-        :param SGrid:
+        :param backBoneOutChannels: the out channels of backbone
+        :param backbone: At least 5 times striding 2 operation.
+        :param BoundingBoxes: the number of bounding boxes in one cell
+        :param num_classes: the number of classes which we would like to detect
+        :param SGrid: the number of grid which we would like to split
         """
         super().__init__()
-        assert imageSize // 5 != SGrid, "image size must be 5 times bigger than SGrid."
+        #print(imageSize // 64)
+        #print(SGrid)
+        stridesTimes = math.log2(imageSize / SGrid)
+        assert (stridesTimes % np.floor(stridesTimes)) == 0, "The size of image must divide by SGrid !"
+        assert imageSize // SGrid >= 32, "The size of image must 32 times bigger than SGrid !"
         self.backbone = backbone
         self.B = BoundingBoxes
         self.S = SGrid
         self.nc = num_classes
+        layers = []
+        stridesTimes = int(stridesTimes - 5)
+        if stridesTimes == 1:
+            layers.append(Bottleneck(backBoneOutChannels,outChannels=2048, stride=2))
+        else:
+            layers.append(Bottleneck(backBoneOutChannels,outChannels=2048, stride=2))
+            for _ in range(stridesTimes - 1):
+                layers.append(Bottleneck(2048,outChannels=2048, stride=2))
+        self.complete = nn.Sequential(*layers)
         self.conv_2 = nn.Sequential(
-            Conv2dDynamicSamePadding(in_channels=backBoneOutChannels,out_channels=2048,kernel_size=3,stride=2),
-            nn.BatchNorm2d(2048, eps=1e-3, momentum=1-0.99),
+            SeparableConvBlock(2048, out_channels=2048, norm=True, activation=False),
             Mish(),
-            SeparableConvBlock(2048, 1024, norm=True, activation=True)
+            SeparableConvBlock(2048, 2048, norm=True, activation=False),
+            Mish()
         )
         self.conv_1 = nn.Sequential(
-            nn.Conv2d(1024, self.B * 5 + self.nc, kernel_size=1, stride=1, bias=False),
+            nn.Conv2d(2048, self.B * 5 + self.nc, kernel_size=1, stride=1, bias=False),
             nn.BatchNorm2d(self.B * 5 + self.nc, eps=1e-3, momentum=1-0.99),
         )
 
@@ -131,7 +182,8 @@ class YoloDetection(nn.Module, ABC):
         :return: confidence [N, S, S, B], boxes [N, S, S, B * 4], condClasses [N, S, S, NUM_CLASSES]
         """
         imgFeature = self.backbone(x)
-        imgFeature = self.conv_1(self.conv_2(imgFeature))
+        imgFeature = self.conv_1(self.conv_2(self.complete(imgFeature)))
+        #print(imgFeature.shape)
         finalOutput = imgFeature.permute(0,2,3,1)
         ### B boxes and condClass
         boxesAndConfidence, condClasses = torch.split(finalOutput, [self.B * 5, self.nc], dim=-1)
@@ -247,7 +299,7 @@ class YoloLoss(nn.Module, ABC):
     def objMaskAndEncoder(self, groundTruth, groundLabels):
         """
         In gtOrdinate, if one cell contains object, this cell will contain (x, y, w, h).
-        However, if there is no object in the cell, it only contains zeros.
+        However, if there is no object in the cell, it only contains zeros (0, 0, 0, 0).
         :param groundTruth: [N, GTs, 4], (x1, y1, x2, y2)
         :param groundLabels:  [N, GTs]
         :return: objMask : [N, S, S], gtOrdinate [N, S, S, 4]; (x, y, w, h), gtLabels [N, S, S, NUM_CLASSES]
@@ -374,7 +426,7 @@ class YoloLoss(nn.Module, ABC):
         return coordinateLoss , objLoss, noObjLoss , classesLoss
 
 
-import cv2
+
 # drawBox([[x, y, xmax, ymax]], img)
 def drawBox(boxes, image):
     """
