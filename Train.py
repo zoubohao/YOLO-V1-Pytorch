@@ -13,10 +13,10 @@ from collections import OrderedDict
 if __name__ == "__main__":
     ### config
     device = "cuda:0"
-    boundingBoxesNum = 2
+    boundingBoxesNum = 3
     labelsNum = 1
-    SGrid = 7
-    imageSize = 896
+    SGrid = 8
+    imageSize = 1024
     coordLambda = 5
     noObjLambda = 0.008
     LR = 1e-5

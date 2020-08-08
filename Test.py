@@ -69,18 +69,19 @@ def drawBox(boxes, image):
     cv2.imshow("img", image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+    cv2.imwrite("./testJPGImages/test11Result.jpg", image)
 
 from NMS import nms
 
 if __name__ == "__main__":
     ### Test part
-    testPeopleJpg = "./testJPGImages/test1.jpg"
-    modelWeightPath = "./trainCheckPoint/48552Times.pth"
+    testPeopleJpg = "./testJPGImages/test11.jpg"
+    modelWeightPath = "./trainCheckPoint/45696Times.pth"
     boundingBoxesNum = 3
     labelsNum = 1
-    S = 10
-    imageSizeTest = 1280
-    confidenceTh = 0.4
+    S = 8
+    imageSizeTest = 1024
+    confidenceTh = 0.2
 
     ### Model
     backbone = ResNet()
@@ -121,7 +122,7 @@ if __name__ == "__main__":
     boxesCoordinate = torch.stack(boxesCoordinate,dim=0).detach().cpu().numpy()
     boxesConfidence = torch.stack(boxesConfidence, dim=0).detach().cpu().numpy()
     ### NMS
-    picked_boxes , _ = nms(boxesCoordinate, boxesConfidence, threshold=0.2)
+    picked_boxes , _ = nms(boxesCoordinate, boxesConfidence, threshold=0.1)
     cv2Image = np.array(tv.transforms.Resize([imageSizeTest, imageSizeTest])(pilImg))
     drawBox(np.array(picked_boxes), cv2Image)
 
